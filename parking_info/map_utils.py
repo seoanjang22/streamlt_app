@@ -7,15 +7,24 @@ def create_map(df):
     주차장 위치를 지도에 표시
     """
 
-    if len(df) == 0:
+   # 위도·경도 숫자형 변환
+df = df.copy()
 
-        return folium.Map(
-            location=[37.5665, 126.9780],
-            zoom_start=11
-        )
+df["위도"] = pd.to_numeric(df["위도"], errors="coerce")
+df["경도"] = pd.to_numeric(df["경도"], errors="coerce")
 
-    center_lat = df["위도"].mean()
-    center_lng = df["경도"].mean()
+# 위도·경도가 없는 데이터 제거
+df = df.dropna(subset=["위도", "경도"])
+
+if len(df) == 0:
+
+    return folium.Map(
+        location=[37.5665, 126.9780],
+        zoom_start=11
+    )
+
+center_lat = df["위도"].mean()
+center_lng = df["경도"].mean()
 
     m = folium.Map(
         location=[center_lat, center_lng],
