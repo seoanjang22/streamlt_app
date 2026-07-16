@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import folium
 from streamlit_folium import st_folium
+from parking_utils import calculate_dataframe_fee
 
 st.set_page_config(
     page_title="서울 주차장 추천",
@@ -214,13 +215,11 @@ def calculate_fee(row, parking_time):
     return total
 
 
-########################################################
-# 예상요금 계산
-########################################################
-
-df["예상요금"] = df.apply(
-    lambda row: calculate_fee(row, parking_time),
-    axis=1
+df = calculate_dataframe_fee(
+    df,
+    basic_fee_col,
+    add_fee_col,
+    parking_time
 )
 
 ########################################################
