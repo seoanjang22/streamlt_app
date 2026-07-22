@@ -9,7 +9,8 @@ class SentimentAnalyzer:
     def __init__(self):
 
         self.model_name = (
-            "daekeun-ml/koelectra-small-v3-discriminator"
+    "beomi/KcELECTRA-base-v2022"
+
         )
 
         self.tokenizer = AutoTokenizer.from_pretrained(
