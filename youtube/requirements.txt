@@ -22,7 +22,7 @@ sentencepiece==0.2.0
 
 # Word Cloud
 wordcloud==1.9.3
-Pillow==11.0.0
+Pillow
 
 # PDF Report
 reportlab==4.2.5
