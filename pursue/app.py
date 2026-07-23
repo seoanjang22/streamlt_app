@@ -175,7 +175,7 @@ if api_key:
     if st.button("✨ 오늘의 AI 피드백 메시지 받기"):
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            model = genai.GenerativeModel("gemini-3.5-flash")
             
             prompt = f"""
             당신은 친절하고 위트 있는 습관 형성 코치입니다.
