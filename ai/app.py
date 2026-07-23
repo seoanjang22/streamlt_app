@@ -32,7 +32,7 @@ if not api_key:
 
 # Gemini 모델 초기화
 genai.configure(api_key=api_key)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-3.5-flash')
 
 # --- PDF 텍스트 추출 함수 ---
 def extract_text_from_pdf(pdf_file):
