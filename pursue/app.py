@@ -68,7 +68,7 @@ with st.sidebar:
 # --- 4. 메인 화면 ---
 st.title("🌱 나만의 습관 & 잔디 대시보드")
 st.subheader(f"🎯 현재 목표: **{habit_data['habit_name']}**")
-st.write("") # 간격 띄우기
+st.write("") 
 
 completed_set = set(habit_data["completed_dates"])
 
@@ -77,7 +77,6 @@ col_left, col_right = st.columns([1.5, 1])
 # [왼쪽 영역] 날짜 체크인
 with col_left:
     st.markdown("### 📅 달성 기록하기")
-    # 🔥 수정 1: key를 명시적으로 부여하여 날짜가 오늘로 튕기는 현상 방지
     selected_date = st.date_input("날짜를 선택하세요", datetime.date.today(), key="checkin_date")
     selected_str = selected_date.strftime("%Y-%m-%d")
     is_checked = selected_str in completed_set
@@ -87,7 +86,7 @@ with col_left:
 
     if st.button(button_label, type=button_type, use_container_width=True):
         if is_checked:
-            completed_set.discard(selected_str) # 에러 방지를 위해 remove 대신 discard 사용
+            completed_set.discard(selected_str)
             st.toast(f"{selected_str} 기록을 취소했습니다.")
         else:
             completed_set.add(selected_str)
@@ -103,7 +102,6 @@ today = datetime.date.today()
 current_streak = 0
 curr_date = today
 
-# 오늘 기록이 없으면 어제부터 계산 시작
 if curr_date.strftime("%Y-%m-%d") not in completed_set:
     curr_date = today - datetime.timedelta(days=1)
 
@@ -124,17 +122,13 @@ st.divider()
 # --- 5. 깃허브 스타일 잔디 깎기 (Activity Heatmap) ---
 st.subheader("📊 최근 12주 잔디 깎기 (히트맵)")
 
-# 사용자가 오늘보다 미래의 날짜를 선택했을 경우 히트맵 범위 동적 확장
 max_date = today
 if completed_set:
     max_completed = max([datetime.datetime.strptime(d, "%Y-%m-%d").date() for d in completed_set])
     max_date = max(today, max_completed)
 
-# 최근 84일(12주) 범위 데이터 생성
 end_date = max_date
 start_date = end_date - datetime.timedelta(days=83)
-
-# 🔥 수정 2: 달력 요일 꼬임 방지를 위해 무조건 '월요일'부터 시작하도록 정렬
 start_monday = start_date - datetime.timedelta(days=start_date.weekday())
 date_range = pd.date_range(start=start_monday, end=end_date)
 
@@ -142,22 +136,19 @@ df = pd.DataFrame({"Date": date_range})
 df["DateStr"] = df["Date"].dt.strftime("%Y-%m-%d")
 df["Completed"] = df["DateStr"].apply(lambda x: 1 if x in completed_set else 0)
 
-# 시각화를 위한 좌표 연산 (주차 및 요일)
 df["Day_Diff"] = (df["Date"].dt.date - start_monday).apply(lambda x: x.days)
 df["Week_Idx"] = df["Day_Diff"] // 7
-df["Weekday_Idx"] = df["Date"].dt.weekday  # 0: 월요일 ~ 6: 일요일
+df["Weekday_Idx"] = df["Date"].dt.weekday  
 
-# 피벗 매트릭스 생성
 pivot = df.pivot(index="Weekday_Idx", columns="Week_Idx", values="Completed").fillna(0)
 
-# Plotly 히트맵 그리기
 fig = px.imshow(
     pivot,
     labels=dict(x="주차", y="요일", color="달성 여부"),
     x=[f"{i+1}주" for i in range(pivot.shape[1])],
     y=["월", "화", "수", "목", "금", "토", "일"],
-    color_continuous_scale=[[0, "#ebedf0"], [1, "#2ea44f"]], # 회색 -> 초록색
-    zmin=0, zmax=1, # 🔥 수정 3: 데이터 변화에 따른 색상 왜곡 방지
+    color_continuous_scale=[[0, "#ebedf0"], [1, "#2ea44f"]],
+    zmin=0, zmax=1,
     aspect="auto"
 )
 
@@ -168,4 +159,4 @@ fig.update_layout(
     margin=dict(l=0, r=0, t=30, b=0)
 )
 
-st.plotly_chart(fig, use_container_width=True)형 AI 응원 메시지를 받으실 수 있습니다.")
+st.plotly_chart(fig, use_container_width=True)
