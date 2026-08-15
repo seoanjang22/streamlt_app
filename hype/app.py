@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 
-# --- [0] 세션 상태 초기화 (추 개수 관리) ---
-if 'w100' not in st.session_state:
-    st.session_state.w100 = 0
-if 'w500' not in st.session_state:
-    st.session_state.w500 = 0
+# --- [0] 세션 상태 초기화 (추 개수, 탄성계수, 뷰 각도) ---
+if 'w100' not in st.session_state: st.session_state.w100 = 0
+if 'w500' not in st.session_state: st.session_state.w500 = 0
+if 'view_angle' not in st.session_state: st.session_state.view_angle = -90 # 기본 측면 뷰
+if 'E_mod' not in st.session_state: st.session_state.E_mod = 1250 # 탄성계수 기본값
 
 def add_w100():
     if st.session_state.w100 < 5: st.session_state.w100 += 1
@@ -19,183 +18,196 @@ def add_w500():
 def sub_w500():
     if st.session_state.w500 > 0: st.session_state.w500 -= 1
 
-# --- [1] 기본 상수 및 설정 ---
-L_support = 360  # 지지대 사이 거리 (mm)
-L_total = 420    # 보의 총 길이 (mm)
-AREA = 200       # 단면적 (mm^2)
+def rot_left(): st.session_state.view_angle -= 30
+def rot_right(): st.session_state.view_angle += 30
 
-# --- [2] 단면2차모멘트(I) 계산 함수 ---
+# 슬라이더와 숫자 입력창 동기화 함수
+def sync_e_slider(): st.session_state.E_mod = st.session_state.e_slider_key
+def sync_e_input(): st.session_state.E_mod = st.session_state.e_input_key
+
+# --- [1] 기본 상수 및 역학 함수 ---
+L_support = 360  
+AREA = 200       
+
 def calculate_inertia(shape):
     if shape == "평판형": return (50.0 * (4.0 ** 3)) / 12
     elif shape == "I형": return ((36.0 * (32.0 ** 3)) / 12) - ((34.0 * (28.0 ** 3)) / 12)
     elif shape == "ㄷ자형": return ((36.0 * (32.0 ** 3)) / 12) - ((34.0 * (28.0 ** 3)) / 12)
     elif shape == "박스형": return ((27.0 * (27.0 ** 3)) / 12) - ((23.0 * (23.0 ** 3)) / 12)
 
-# --- [3] 역학 계산 함수 ---
 def calculate_deflection(P, L, E, I):
     return (P * (L ** 3)) / (48 * E * I)
 
-def get_deflection_curve(P, L, E, I, num_points=100):
-    x = np.linspace(0, L, num_points)
-    y = np.zeros_like(x)
-    for i, xi in enumerate(x):
-        if xi <= L / 2:
-            y[i] = - (P * xi / (48 * E * I)) * (3 * L**2 - 4 * xi**2)
-        else:
-            xi_rev = L - xi
-            y[i] = - (P * xi_rev / (48 * E * I)) * (3 * L**2 - 4 * xi_rev**2)
-    return x, y
+# 처짐 곡선 (양 끝 지지대 바깥 부분의 솟아오름까지 구현)
+def get_deflection_curve_3d(P, L, E, I, num_points=100, span_ext=30):
+    x = np.linspace(-span_ext, L + span_ext, num_points)
+    z = np.zeros_like(x)
+    if P > 0:
+        theta_max = (P * L**2) / (16 * E * I) # 지지점에서의 꺾임 각도
+        for i, xi in enumerate(x):
+            if xi < 0: z[i] = theta_max * (-xi)
+            elif xi > L: z[i] = theta_max * (xi - L)
+            elif xi <= L / 2: z[i] = -(P * xi / (48 * E * I)) * (3 * L**2 - 4 * xi**2)
+            else: z[i] = -(P * (L - xi) / (48 * E * I)) * (3 * L**2 - 4 * (L - xi)**2)
+    return x, z
 
-# --- [4] Streamlit 웹 앱 UI 구성 ---
-st.set_page_config(page_title="보의 처짐 실험 시뮬레이션", layout="wide")
+# --- [2] 3D 그리기 헬퍼 함수 ---
+def draw_cylinder(ax, center_x, center_y, base_z, radius, height, color):
+    z = np.linspace(base_z, base_z + height, 2)
+    theta = np.linspace(0, 2*np.pi, 20)
+    theta_grid, z_grid = np.meshgrid(theta, z)
+    x_grid = center_x + radius * np.cos(theta_grid)
+    y_grid = center_y + radius * np.sin(theta_grid)
+    ax.plot_surface(x_grid, y_grid, z_grid, color=color, alpha=1.0)
+    # 뚜껑(Top/Bottom caps)
+    cap_r, cap_theta = np.meshgrid(np.linspace(0, radius, 2), theta)
+    ax.plot_surface(center_x + cap_r * np.cos(cap_theta), center_y + cap_r * np.sin(cap_theta), 
+                    np.full_like(cap_r, base_z), color=color)
+    ax.plot_surface(center_x + cap_r * np.cos(cap_theta), center_y + cap_r * np.sin(cap_theta), 
+                    np.full_like(cap_r, base_z + height), color=color)
 
-st.title("🏗️ 단면 형상별 보의 처짐 시각화 시뮬레이션")
-st.markdown("왼쪽 컨트롤 패널에서 보의 형상을 고르고, 추를 추가하거나 제거하여 처짐의 변화를 관찰하세요.")
+# --- [3] Streamlit UI 구성 ---
+st.set_page_config(page_title="보의 처짐 3D 시뮬레이션", layout="wide")
+st.title("🏗️ 단면 형상별 보의 처짐 3D 시뮬레이션")
 
 st.sidebar.header("실험 조건 설정")
-
-# 단면 형상 선택
 shape_list = ["평판형", "I형", "ㄷ자형", "박스형"]
 selected_shape = st.sidebar.selectbox("단면 형상을 선택하세요:", shape_list)
 
-# 하중 제어 패널 (세션 상태 연동)
+# 탄성계수 입력 (슬라이더 + 숫자 입력창 동기화)
 st.sidebar.markdown("---")
-st.sidebar.subheader("⚖️ 하중 설정 (추 매달기)")
-st.sidebar.write("각 무게당 최대 5개까지 매달 수 있습니다.")
+st.sidebar.subheader("⚙️ 하드보드지 탄성계수 (E)")
+st.sidebar.slider("탄성계수 E (MPa) [슬라이드 조작]", 500, 2000, value=st.session_state.E_mod, step=1, 
+                  key="e_slider_key", on_change=sync_e_slider)
+st.sidebar.number_input("탄성계수 E (MPa) [직접 입력]", 500, 2000, value=st.session_state.E_mod, step=1, 
+                        key="e_input_key", on_change=sync_e_input)
+E_modulus = st.session_state.E_mod
 
+# 하중 제어 패널
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚖️ 하중 설정 (최대 5개씩)")
 col1, col2 = st.sidebar.columns(2)
 with col1:
     st.markdown("**100g 추**")
-    st.button("➕ 100g 추가", on_click=add_w100, use_container_width=True)
-    st.button("➖ 100g 제거", on_click=sub_w100, use_container_width=True)
+    st.button("➕ 100g", on_click=add_w100, use_container_width=True)
+    st.button("➖ 100g", on_click=sub_w100, use_container_width=True)
 with col2:
     st.markdown("**500g 추**")
-    st.button("➕ 500g 추가", on_click=add_w500, use_container_width=True)
-    st.button("➖ 500g 제거", on_click=sub_w500, use_container_width=True)
+    st.button("➕ 500g", on_click=add_w500, use_container_width=True)
+    st.button("➖ 500g", on_click=sub_w500, use_container_width=True)
 
-# 하중 계산
+exaggeration_factor = st.sidebar.slider("🔍 처짐 시각적 과장 배율", 1, 100, 20)
+
 total_mass_kg = (st.session_state.w100 * 0.1) + (st.session_state.w500 * 0.5)
 P_newton = total_mass_kg * 9.81
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ 고급 설정")
-E_modulus = st.sidebar.slider(
-    "하드보드지 탄성계수 E (MPa)", 
-    min_value=500, max_value=4000, value=4000, step=500
-)
-exaggeration_factor = st.sidebar.slider("처짐 시각적 과장 배율", min_value=1, max_value=100, value=20)
-
-
-# --- [5] 결과 계산 ---
 current_I = calculate_inertia(selected_shape)
-if P_newton > 0:
-    current_deflection = calculate_deflection(P_newton, L_support, E_modulus, current_I)
-else:
-    current_deflection = 0.0
+current_deflection = calculate_deflection(P_newton, L_support, E_modulus, current_I)
 
-# --- [6] 시각화 (Matplotlib) ---
-st.subheader("👀 보의 처짐 시각화")
+# --- [4] 3D 시각화 (거리뷰 회전 기능) ---
+st.subheader("👀 입체 거리뷰 시각화")
+col_view1, col_view2, col_view3 = st.columns([1, 1, 3])
+with col_view1:
+    st.button("⬅️ 왼쪽으로 30° 회전", on_click=rot_left, use_container_width=True)
+with col_view2:
+    st.button("오른쪽으로 30° 회전 ➡️", on_click=rot_right, use_container_width=True)
+with col_view3:
+    st.markdown(f"**현재 카메라 앵글:** {st.session_state.view_angle}° *(기본 -90°는 측면뷰입니다)*")
 
-fig, ax = plt.subplots(figsize=(12, 6))
-ax.set_facecolor('#e9ecef')
-ax.grid(True, which='both', linestyle='-', linewidth=0.5, color='#aeb6bf', alpha=0.7)
+# 피규어 크기를 키우고 tight_layout을 강제하여 잘림 현상 원천 차단
+fig = plt.figure(figsize=(14, 8))
+ax = fig.add_subplot(111, projection='3d')
+ax.set_facecolor('#ffffff') # 배경색 하얗게
 
-# 책상(지지대) 그리기
-support_w, support_h = 100, 200
-ax.add_patch(patches.Rectangle((0 - support_w, -support_h), support_w, support_h, color='#2c3e50', zorder=3))
-ax.add_patch(patches.Rectangle((0 - support_w, 0), support_w, 5, color='#1a252f', zorder=3))
-ax.add_patch(patches.Rectangle((L_support, -support_h), support_w, support_h, color='#2c3e50', zorder=3))
-ax.add_patch(patches.Rectangle((L_support, 0), support_w, 5, color='#1a252f', zorder=3))
+# 1. 지지대(책상) 3D 모델링 (상판과 다리 디테일 추가)
+# 왼쪽 책상
+ax.bar3d(-80, -30, -200, 50, 60, 195, color='#34495e', shade=True) # 책상 다리/본체
+ax.bar3d(-100, -40, -5, 100, 80, 5, color='#1a252f', shade=True) # 검은색 상판 (X=0까지 덮음)
+# 오른쪽 책상
+ax.bar3d(390, -30, -200, 50, 60, 195, color='#34495e', shade=True)
+ax.bar3d(360, -40, -5, 100, 80, 5, color='#1a252f', shade=True)
 
-# 36cm 지지대 간격 표시
-ax.annotate('', xy=(0, -20), xytext=(L_support, -20), arrowprops=dict(arrowstyle='<->', color='#2c3e50', lw=1.5))
-ax.text(L_support / 2, -15, '36cm (360mm)', ha='center', va='bottom', color='#2c3e50', fontweight='bold', fontsize=10)
+# 2. 보의 단면 3D 렌더링 (단면 모양을 사각형들의 조합으로 정의)
+# y1, y2 (두께/너비), z1, z2 (높이)
+shapes_3d = {
+    "평판형": [ (-25, 25, -2, 2) ],
+    "I형": [ (-18, 18, 14, 16), (-1, 1, -14, 14), (-18, 18, -16, -14) ],
+    "ㄷ자형": [ (-18, 16, 14, 16), (16, 18, -16, 16), (-18, 16, -16, -14) ],
+    "박스형": [ (-13.5, 13.5, 11.5, 13.5), (-13.5, -11.5, -11.5, 11.5), 
+               (11.5, 13.5, -11.5, 11.5), (-13.5, 13.5, -13.5, -11.5) ]
+}
 
-# 보 처짐 곡선 계산 및 과장
-x_curve, y_curve = get_deflection_curve(P_newton, L_support, E_modulus, current_I)
-y_ex = y_curve * exaggeration_factor
+x_curve, z_curve = get_deflection_curve_3d(P_newton, L_support, E_modulus, current_I)
+z_ex = z_curve * exaggeration_factor # 처짐 과장
 
-# 💡 단면 형상별 보의 단면 프로필을 2D 측면도로 시각화
-if selected_shape == "평판형":
-    ax.plot(x_curve, y_ex, color='#d4c081', linewidth=4, solid_capstyle='round', zorder=4)
-elif selected_shape == "I형":
-    ax.plot(x_curve, y_ex, color='#c5b374', linewidth=16, solid_capstyle='butt', alpha=0.6, zorder=4) # 웹
-    ax.plot(x_curve, y_ex + 16, color='#d4c081', linewidth=3, solid_capstyle='round', zorder=4) # 상부 플랜지
-    ax.plot(x_curve, y_ex - 16, color='#d4c081', linewidth=3, solid_capstyle='round', zorder=4) # 하부 플랜지
-elif selected_shape == "ㄷ자형":
-    ax.fill_between(x_curve, y_ex - 16, y_ex + 16, color='#d4c081', alpha=0.7, zorder=4)
-    ax.plot(x_curve, y_ex + 16, color='#8a7a4a', linewidth=2, zorder=5)
-    ax.plot(x_curve, y_ex - 16, color='#8a7a4a', linewidth=2, zorder=5)
-    ax.plot(x_curve, y_ex, color='#8a7a4a', linewidth=1, linestyle='--', zorder=5) # 내부 모서리 표시
-elif selected_shape == "박스형":
-    ax.fill_between(x_curve, y_ex - 13.5, y_ex + 13.5, color='#e6d5a1', zorder=4)
-    ax.fill_between(x_curve, y_ex - 9, y_ex + 9, color='#e9ecef', zorder=5) # 텅 빈 내부 (배경색)
-    ax.plot(x_curve, y_ex + 13.5, color='#d4c081', linewidth=2, zorder=6)
-    ax.plot(x_curve, y_ex - 13.5, color='#d4c081', linewidth=2, zorder=6)
+for rect in shapes_3d[selected_shape]:
+    y1, y2, z1, z2 = rect
+    faces = [
+        (y1, y2, z2, z2), # 위
+        (y1, y2, z1, z1), # 아래
+        (y1, y1, z1, z2), # 좌
+        (y2, y2, z1, z2)  # 우
+    ]
+    for f_y1, f_y2, f_z1, f_z2 in faces:
+        X_surf = np.array([x_curve, x_curve])
+        Y_surf = np.array([[f_y1]*len(x_curve), [f_y2]*len(x_curve)])
+        Z_surf = np.array([[f_z1]*len(x_curve), [f_z2]*len(x_curve)]) + np.array([z_ex, z_ex])
+        # 단면이 잘 보이도록 테두리선(edgecolor) 적용
+        ax.plot_surface(X_surf, Y_surf, Z_surf, color='#e5d393', edgecolor='#bfae76', linewidth=0.3, alpha=0.95)
 
-# 실과 추 그리기 함수
-def draw_weight(x, y, weight_type):
-    if weight_type == 100:
-        w, h = 18, 14
-        color, edge, label = '#a0a0a0', '#5c5c5c', '100g' # 은색 느낌
-        text_color = 'black'
-    else:
-        w, h = 26, 30
-        color, edge, label = '#cfa736', '#8a6d1c', '500g' # 황동색 느낌
-        text_color = 'white'
-    
-    ax.add_patch(patches.Rectangle((x - w/2, y), w, h, color=color, ec=edge, lw=1.5, zorder=7))
-    ax.text(x, y + h/2, label, ha='center', va='center', fontsize=8, color=text_color, fontweight='bold', zorder=8)
-    return h
-
-# 왼쪽 책상 위 대기 중인 추 (Storage) 시각화
-for i in range(5 - st.session_state.w500):
-    draw_weight(-85 + (i * 15), 5, 500)
-for i in range(5 - st.session_state.w100):
-    draw_weight(-85 + (i * 20), 40, 100)
-
-# 중앙에 매달린 추 시각화
+# 3. 실과 추 3D 모델링
 center_x = L_support / 2
-center_y = min(y_ex) - (16 if selected_shape in ["I형", "ㄷ자형"] else (13.5 if selected_shape == "박스형" else 2))
+center_z = min(z_ex) - (16 if selected_shape in ["I형", "ㄷ자형"] else (13.5 if selected_shape == "박스형" else 2))
 string_length = 60
-current_y = center_y - string_length
+string_bottom_z = center_z - string_length
 
-# 요구사항 반영: 실 색상 #6c6c6c
 if P_newton > 0:
-    ax.plot([center_x, center_x], [center_y, current_y], color='#6c6c6c', linewidth=1.5, zorder=2)
+    ax.plot([center_x, center_x], [0, 0], [center_z, string_bottom_z], color='#6c6c6c', linewidth=1.5)
 
+# 매달린 추 그리기 (입체 원기둥)
+current_z = string_bottom_z
 for _ in range(st.session_state.w500):
-    current_y -= (30 + 4) # 500g 높이 + 고리 간격
-    draw_weight(center_x, current_y, 500)
-    ax.plot([center_x, center_x], [current_y + 30, current_y + 34], color='#8a6d1c', lw=2, zorder=6) # 연결 고리
-
+    current_z -= 30
+    draw_cylinder(ax, center_x, 0, current_z, 16, 30, '#cfa736') # 500g 황동색 추
+    current_z -= 4
 for _ in range(st.session_state.w100):
-    current_y -= (14 + 4) # 100g 높이 + 고리 간격
-    draw_weight(center_x, current_y, 100)
-    ax.plot([center_x, center_x], [current_y + 14, current_y + 18], color='#5c5c5c', lw=2, zorder=6) # 연결 고리
+    current_z -= 14
+    draw_cylinder(ax, center_x, 0, current_z, 10, 14, '#a0a0a0') # 100g 은색 추
+    current_z -= 4
 
+# 대기 중인 추 (왼쪽 책상 위)
+for i in range(5 - st.session_state.w500):
+    draw_cylinder(ax, -80, -25 + (i*12), 0, 16, 30, '#cfa736')
+for i in range(5 - st.session_state.w100):
+    draw_cylinder(ax, -40, -20 + (i*10), 0, 10, 14, '#a0a0a0')
 
-ax.set_aspect('equal', adjustable='datalim')
-ax.set_xlim(-support_w, L_support + 60)
-ax.set_ylim(-support_h, 80)
-ax.axis('off')
-st.pyplot(fig)
+# 4. 화면 잘림(Cut-off) 완벽 방지를 위한 뷰포트 고정
+ax.view_init(elev=15, azim=st.session_state.view_angle) # 기본적으로 살짝 위에서 내려다보는 앵글(elev=15)
+ax.set_xlim3d(-120, 480)
+ax.set_ylim3d(-60, 60)
+# 가장 아래쪽에 매달린 추의 위치를 계산하여 하단 여백 확보
+lowest_point = -200 if P_newton == 0 else current_z - 30
+ax.set_zlim3d(lowest_point, 80) 
+ax.axis('off') # 불필요한 3D 축 그리드 숨김
 
-# --- [7] 결과 수치 출력 ---
+# 여백을 제거하여 꽉 찬 화면 출력
+fig.tight_layout(pad=0)
+st.pyplot(fig, use_container_width=True) # Streamlit 컨테이너 너비에 맞춤
+
+# --- [5] 결과 수치 출력 ---
 st.markdown("### 📊 수치 해석 결과")
-col1, col2, col3, col4 = st.columns(4)
-with col1:
+col_res1, col_res2, col_res3, col_res4 = st.columns(4)
+with col_res1:
     st.metric(label="총 하중 (Mass)", value=f"{total_mass_kg:.1f} kg")
-with col2:
+with col_res2:
     st.metric(label="작용 힘 (P)", value=f"{P_newton:.2f} N")
-with col3:
+with col_res3:
     st.metric(label="단면2차모멘트 (I)", value=f"{current_I:,.1f} mm⁴")
-with col4:
+with col_res4:
     st.metric(label="실제 최대 처짐량 (δ)", value=f"{current_deflection:.3f} mm")
 
 st.markdown("---")
 
-# --- [8] 전체 형상 비교 차트 ---
+# --- [6] 전체 형상 비교 차트 ---
 st.subheader("📈 전체 형상 처짐량 비교")
 results = []
 for shape in shape_list:
