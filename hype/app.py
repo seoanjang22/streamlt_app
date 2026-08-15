@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 # --- [0] 세션 상태 초기화 ---
 if 'w100' not in st.session_state: st.session_state.w100 = 0
 if 'w500' not in st.session_state: st.session_state.w500 = 0
-if 'view_angle' not in st.session_state: st.session_state.view_angle = -90 # -90도가 완벽한 정면(측면도)
+if 'view_angle' not in st.session_state: st.session_state.view_angle = -90 
 if 'E_val' not in st.session_state: st.session_state.E_val = 1250 # 탄성계수 기본값
 
 def add_w100():
@@ -21,11 +21,12 @@ def sub_w500():
 def set_angle(angle):
     st.session_state.view_angle = angle
 
-# 슬라이더와 입력창 완벽 동기화를 위한 콜백 함수
-def update_from_slider():
-    st.session_state.E_val = st.session_state.e_slider
-def update_from_input():
-    st.session_state.E_val = st.session_state.e_input
+# 슬라이더와 입력창 동기화 함수
+def sync_slider():
+    st.session_state.E_val = st.session_state.e_slider_widget
+
+def sync_input():
+    st.session_state.E_val = st.session_state.e_input_widget
 
 # --- [1] 기본 상수 및 역학 함수 ---
 L_support = 360  
@@ -74,13 +75,13 @@ st.sidebar.header("실험 조건 설정")
 shape_list = ["평판형", "I형", "ㄷ자형", "박스형"]
 selected_shape = st.sidebar.selectbox("단면 형상을 선택하세요:", shape_list)
 
-# 탄성계수 동기화 입력
+# 탄성계수 동기화 입력 (콜백 연동)
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ 하드보드지 탄성계수 (E)")
 st.sidebar.slider("탄성계수 E (MPa) [슬라이드 조작]", 500, 2000, value=st.session_state.E_val, step=1, 
-                  key="e_slider", on_change=update_from_slider)
+                  key="e_slider_widget", on_change=sync_slider)
 st.sidebar.number_input("탄성계수 E (MPa) [직접 입력]", 500, 2000, value=st.session_state.E_val, step=1, 
-                        key="e_input", on_change=update_from_input)
+                        key="e_input_widget", on_change=sync_input)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚖️ 하중 설정 (최대 5개씩)")
@@ -94,7 +95,6 @@ with col2:
     st.button("➕ 500g", on_click=add_w500, use_container_width=True)
     st.button("➖ 500g", on_click=sub_w500, use_container_width=True)
 
-# 시각적 과장 설명 추가
 st.sidebar.markdown("---")
 st.sidebar.markdown("💡 **처짐 시각적 과장 배율이란?**<br>실제 2T 두께의 박스/I형 보 처짐은 눈에 띄지 않을 만큼 미세합니다. 구조별 차이를 뚜렷하게 관찰하기 위해 곡선의 깊이를 증폭시키는 배율입니다.", unsafe_allow_html=True)
 exaggeration_factor = st.sidebar.slider("🔍 처짐 시각적 과장 배율", 1, 100, 20)
@@ -107,7 +107,6 @@ current_deflection = calculate_deflection(P_newton, L_support, st.session_state.
 # --- [4] 3D 시각화 ---
 st.subheader("👀 입체 거리뷰 시각화")
 
-# 카메라 시점 변경 버튼 (고도(elev)는 0으로 고정하여 측면 유지)
 c1, c2, c3 = st.columns(3)
 c1.button("⬅️ 왼쪽 30° 측면 보기", on_click=set_angle, args=(-120,), use_container_width=True)
 c2.button("⬇️ 정면 (0°) 보기", on_click=set_angle, args=(-90,), use_container_width=True)
@@ -117,26 +116,20 @@ fig = plt.figure(figsize=(14, 7))
 ax = fig.add_subplot(111, projection='3d')
 ax.set_facecolor('#ffffff')
 
-# 1. 지지대(책상) 3D 모델링
-# 왼쪽 책상 (X=-100 ~ 0)
+# 지지대(책상)
 ax.bar3d(-100, -30, -200, 100, 60, 195, color='#34495e', shade=True)
 ax.bar3d(-100, -40, -5, 100, 80, 5, color='#1a252f', shade=True)
-# 오른쪽 책상 (X=360 ~ 460)
 ax.bar3d(360, -30, -200, 100, 60, 195, color='#34495e', shade=True)
 ax.bar3d(360, -40, -5, 100, 80, 5, color='#1a252f', shade=True)
 
-# 2. 독립된 선반(Shelf) 추가 (겹침 문제 해결)
-# 지지대와 떨어진 왼쪽 상단(X=-320 ~ -120)에 넓은 선반 배치
+# 독립된 선반 및 대기 중인 추
 ax.bar3d(-320, -30, -30, 200, 60, 5, color='#7f8c8d', shade=True)
-
-# 선반 위 대기 중인 추 (500g과 100g을 앞뒤로 분리하여 배치)
-# 500g은 선반 안쪽(y=10), 100g은 선반 바깥쪽(y=-15)에 나열
 for i in range(5 - st.session_state.w500):
     draw_cylinder(ax, -300 + (i*35), 10, -25, 12, 25, '#cfa736')
 for i in range(5 - st.session_state.w100):
     draw_cylinder(ax, -290 + (i*35), -15, -25, 8, 12, '#a0a0a0')
 
-# 3. 보의 단면 3D 렌더링
+# 보 단면 3D 렌더링
 shapes_3d = {
     "평판형": [ (-25, 25, -2, 2) ],
     "I형": [ (-18, 18, 14, 16), (-1, 1, -14, 14), (-18, 18, -16, -14) ],
@@ -160,7 +153,7 @@ for rect in shapes_3d[selected_shape]:
         Z_surf = np.array([[f_z1]*len(x_curve), [f_z2]*len(x_curve)]) + np.array([z_ex, z_ex])
         ax.plot_surface(X_surf, Y_surf, Z_surf, color='#e5d393', edgecolor='#c4b172', linewidth=0.2, alpha=1.0)
 
-# 4. 실과 매달린 추 3D 렌더링
+# 실과 매달린 추
 center_x = L_support / 2
 center_z = min(z_ex) - (16 if selected_shape in ["I형", "ㄷ자형"] else (13.5 if selected_shape == "박스형" else 2))
 string_bottom_z = -50
@@ -178,21 +171,17 @@ for _ in range(st.session_state.w100):
     draw_cylinder(ax, center_x, 0, current_z, 8, 12, '#a0a0a0')
     current_z -= 4 
 
-# 5. 정면(각도 0도, azim=-90)일 때만 36cm 지지대 간격 표시
+# 정면 시점일 때 36cm 간격 표시
 if st.session_state.view_angle == -90:
     ax.plot([0, 360], [0, 0], [-20, -20], color='#2c3e50', linewidth=1.5)
     ax.scatter([0, 360], [0, 0], [-20, -20], color='#2c3e50', s=20)
     ax.text(180, 0, -15, "36cm (360mm)", color='#2c3e50', ha='center', va='bottom', fontweight='bold', fontsize=11)
 
-# 6. 카메라 앵글 및 실제 비율(뚱뚱함 방지) 강제 고정
-# elev=0을 통해 위에서 내려다보는 원근감을 없애고 완벽한 측면 시점 확보
 ax.view_init(elev=0, azim=st.session_state.view_angle) 
-
-# X, Y, Z축의 범위를 설정하고, 해당 범위만큼 공간 비율(box_aspect)을 강제 일치시킴 (왜곡 방지)
-ax.set_xlim3d(-340, 480) # 폭 820
-ax.set_ylim3d(-50, 50)   # 깊이 100
-ax.set_zlim3d(-180, 60)  # 높이 240
-ax.set_box_aspect((820, 100, 240)) # 실제 스케일 비율 동기화
+ax.set_xlim3d(-340, 480)
+ax.set_ylim3d(-50, 50)
+ax.set_zlim3d(-180, 60)
+ax.set_box_aspect((820, 100, 240))
 
 ax.axis('off')
 fig.tight_layout(pad=0)
