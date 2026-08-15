@@ -1,114 +1,177 @@
 import streamlit as st
 import pandas as pd
-import math
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 # --- [1] 기본 상수 및 설정 ---
 L_support = 360  # 지지대 사이 거리 (mm)
-L_total = 420    # 보의 총 길이 (mm) - 처짐 공식에는 지지대 사이 거리(L_support)가 사용됨
+L_total = 420    # 보의 총 길이 (mm)
 AREA = 200       # 단면적 (mm^2) - 모든 형상 동일
 
 # --- [2] 단면2차모멘트(I) 계산 함수 ---
-# 단위는 모두 mm, 결과는 mm^4
 def calculate_inertia(shape):
     if shape == "평판형":
-        # 가로 50mm, 세로 4mm (하중을 넓은 면으로 받는 경우)
         b, h = 50.0, 4.0
         I = (b * (h ** 3)) / 12
-    
     elif shape == "I형":
-        # 전체 외곽 사각형에서 빈 공간 2개를 빼는 방식
-        # 가로 36mm, 세로 32mm / 빈공간: 총 가로 34mm(양옆 17mm씩), 세로 28mm
         B, H = 36.0, 32.0
         b, h = 34.0, 28.0
         I = ((B * (H ** 3)) / 12) - ((b * (h ** 3)) / 12)
-        
     elif shape == "ㄷ자형":
-        # 굽힘 축(수평축)에 대한 모멘트는 I형과 동일하게 계산 가능 (웹이 세로로 서있는 기준)
-        # 전체 가로 36mm, 세로 32mm / 빈공간: 가로 34mm, 세로 28mm
         B, H = 36.0, 32.0
         b, h = 34.0, 28.0
         I = ((B * (H ** 3)) / 12) - ((b * (h ** 3)) / 12)
-        
     elif shape == "박스형":
-        # 외곽 사각형에서 내부 사각형을 빼는 방식
-        # 가로 27mm, 세로 27mm / 내부: 가로 23mm, 세로 23mm
         B, H = 27.0, 27.0
         b, h = 23.0, 23.0
         I = ((B * (H ** 3)) / 12) - ((b * (h ** 3)) / 12)
-        
     return I
 
-# --- [3] 최대 처짐량 계산 함수 ---
-# P: 하중(N), L: 지지대 거리(mm), E: 탄성계수(MPa = N/mm^2), I: 단면2차모멘트(mm^4)
-# 결과는 mm
+# --- [3] 역학 계산 함수 (최대 처짐량 및 처짐 곡선) ---
 def calculate_deflection(P, L, E, I):
     return (P * (L ** 3)) / (48 * E * I)
 
+# 처짐 곡선의 x, y 좌표 배열을 반환하는 함수 (단순보 중심 하중 곡선 공식)
+def get_deflection_curve(P, L, E, I, num_points=100):
+    x = np.linspace(0, L, num_points)
+    y = np.zeros_like(x)
+    for i, xi in enumerate(x):
+        if xi <= L / 2:
+            # v(x) = P*x / (48*E*I) * (3*L^2 - 4*x^2)
+            y[i] = - (P * xi / (48 * E * I)) * (3 * L**2 - 4 * xi**2)
+        else:
+            xi_rev = L - xi
+            y[i] = - (P * xi_rev / (48 * E * I)) * (3 * L**2 - 4 * xi_rev**2)
+    return x, y
 
 # --- [4] Streamlit 웹 앱 UI 구성 ---
 st.set_page_config(page_title="보의 처짐 실험 시뮬레이션", layout="wide")
 
-st.title("🏗️ 단면 형상별 보의 처짐 실험 시뮬레이션")
+st.title("🏗️ 단면 형상별 보의 처짐 시각화 시뮬레이션")
 st.markdown("""
-이 시뮬레이션은 단면적이 200mm²로 동일한 2T 하드보드지 보(평판형, I형, ㄷ자형, 박스형)에 
-하중을 가했을 때 발생하는 최대 처짐량을 비교합니다.
-*(참조 도면: 스크린샷 2026-08-09 223304.png)*
+사진으로 구별하기 힘든 미세한 처짐량을 물리 공식을 통해 계산하고, 눈으로 확인할 수 있도록 시각화한 시뮬레이션입니다. 
+하중(추의 개수)과 단면 형상을 변경하며 보가 어떻게 휘어지는지 확인해 보세요!
 """)
 
 st.sidebar.header("실험 조건 설정")
 
-# 1. 단면 형상 선택
+# 1. 단면 형상 & 하중 선택
 shape_list = ["평판형", "I형", "ㄷ자형", "박스형"]
 selected_shape = st.sidebar.selectbox("단면 형상을 선택하세요:", shape_list)
 
-# 2. 하중 선택 (500g 단위)
 weight_kg = st.sidebar.select_slider(
-    "하중을 선택하세요 (kg):",
+    "매달 추의 무게 (kg): \n(500g 추 개수 변경)",
     options=[0.5, 1.0, 1.5, 2.0],
     value=1.0
 )
-# 질량(kg)을 힘(N)으로 변환 (P = m * g)
 P_newton = weight_kg * 9.81
+num_weights = int(weight_kg / 0.5) # 500g 당 추 1개
 
-# 3. 하드보드지 탄성계수 설정 (실제 실험 오차 보정용)
+# 2. 고급 설정 (탄성계수 & 시각적 과장)
 st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ 고급 설정")
+st.sidebar.subheader("⚙️ 시각화 및 보정 설정")
 E_modulus = st.sidebar.slider(
     "하드보드지 탄성계수 E (MPa)", 
-    min_value=1000, max_value=8000, value=4000, step=100,
-    help="재질의 빳빳한 정도입니다. 실제 실험 결과와 차이가 난다면 이 값을 조절하여 캘리브레이션 하세요."
+    min_value=1000, max_value=8000, value=4000, step=100
 )
 
-st.sidebar.markdown(f"""
-**고정 조건:**
-- 지지대 간격: {L_support} mm
-- 보의 총 길이: {L_total} mm
-- 두께: 2T (2mm)
-- 단면적: {AREA} mm²
+st.sidebar.markdown("""
+**💡 시각적 과장(Exaggeration)이란?**
+실제 I형, ㄷ자형, 박스형의 처짐량은 0.1mm 수준으로 화면에 직선으로만 표시됩니다. 
+이를 눈으로 확인하기 위해 곡선을 뻥튀기하여 보여주는 배율입니다.
 """)
+exaggeration_factor = st.sidebar.slider(
+    "처짐 시각적 과장 배율", 
+    min_value=1, max_value=100, value=20, step=1
+)
 
-# --- [5] 결과 계산 및 출력 ---
-st.subheader(f"📊 선택된 형상: {selected_shape} 분석 결과")
-
-# 현재 형상에 대한 값 계산
+# --- [5] 결과 계산 ---
 current_I = calculate_inertia(selected_shape)
 current_deflection = calculate_deflection(P_newton, L_support, E_modulus, current_I)
 
+# --- [6] 시각화 (Matplotlib) ---
+st.subheader("👀 보의 처짐 시각화 (실험 환경 모사)")
+
+# 그래프 Figure 생성
+fig, ax = plt.subplots(figsize=(10, 5))
+
+# 배경 모눈종이 세팅 (첨부해주신 사진 배경 느낌)
+ax.set_facecolor('#e9ecef') # 아주 연한 회색 배경
+ax.grid(True, which='both', linestyle='-', linewidth=0.5, color='#aeb6bf', alpha=0.7)
+minor_ticks = np.arange(-50, L_support + 50, 10)
+ax.set_xticks(minor_ticks, minor=True)
+ax.set_yticks(np.arange(-200, 50, 10), minor=True)
+ax.grid(which='minor', alpha=0.3)
+
+# 1. 지지대(책상) 그리기
+support_w, support_h = 60, 150
+# 왼쪽 책상
+ax.add_patch(patches.Rectangle((0 - support_w, -support_h), support_w, support_h, color='#2c3e50', zorder=3))
+ax.add_patch(patches.Rectangle((0 - support_w, 0), support_w, 5, color='#1a252f', zorder=3)) # 책상 상판
+# 오른쪽 책상
+ax.add_patch(patches.Rectangle((L_support, -support_h), support_w, support_h, color='#2c3e50', zorder=3))
+ax.add_patch(patches.Rectangle((L_support, 0), support_w, 5, color='#1a252f', zorder=3)) # 책상 상판
+
+# 2. 보 처짐 곡선 그리기
+x_curve, y_curve = get_deflection_curve(P_newton, L_support, E_modulus, current_I)
+y_curve_exaggerated = y_curve * exaggeration_factor # 눈에 보이게 과장
+
+# 보 그리기 (하드보드지 색상)
+ax.plot(x_curve, y_curve_exaggerated, color='#d4c081', linewidth=6, solid_capstyle='round', zorder=4)
+ax.plot(x_curve, y_curve_exaggerated, color='#c5b374', linewidth=2, solid_capstyle='round', zorder=5) # 음영 디테일
+
+# 3. 실과 추 그리기
+center_x = L_support / 2
+center_y = min(y_curve_exaggerated) # 보의 가장 낮은 중심점
+string_length = 80 # 실 길이
+
+# 실 (하얀색/은색 얇은 선)
+ax.plot([center_x, center_x], [center_y, center_y - string_length], color='white', linewidth=1.5, zorder=2)
+
+# 황동 추 그리기 (500g 당 1개씩 아래로 연결)
+weight_w, weight_h = 24, 28
+start_y = center_y - string_length
+
+for i in range(num_weights):
+    w_y = start_y - (i * (weight_h + 8)) - weight_h
+    # 추 본체 (황동색)
+    ax.add_patch(patches.Rectangle((center_x - weight_w/2, w_y), weight_w, weight_h, 
+                                   color='#cfa736', ec='#8a6d1c', lw=1.5, zorder=5))
+    # 추 상단/하단 고리
+    ax.plot([center_x, center_x], [w_y + weight_h, w_y + weight_h + 4], color='#8a6d1c', lw=2, zorder=4)
+    if i < num_weights - 1: # 아래에 추가 더 있으면 하단 고리 표시
+        ax.plot([center_x, center_x], [w_y, w_y - 4], color='#8a6d1c', lw=2, zorder=4)
+
+# 축 설정 및 제한
+ax.set_aspect('equal', adjustable='datalim')
+ax.set_xlim(-support_w, L_support + support_w)
+ax.set_ylim(-support_h, 40)
+ax.axis('off') # 기본 축 숫자 숨기기
+
+# 시뮬레이션 그림 출력
+st.pyplot(fig)
+
+
+# --- [7] 결과 수치 출력 ---
+st.markdown("### 📊 수치 해석 결과")
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.metric(label="작용 하중 (P)", value=f"{P_newton:.2f} N", delta=f"{weight_kg} kg")
+    st.metric(label="작용 하중 (P)", value=f"{P_newton:.2f} N", delta=f"추 {num_weights}개 ({weight_kg}kg)")
 with col2:
     st.metric(label="단면2차모멘트 (I)", value=f"{current_I:,.1f} mm⁴")
 with col3:
-    st.metric(label="최대 처짐량 (δ)", value=f"{current_deflection:.2f} mm")
+    st.metric(label="실제 최대 처짐량 (δ)", value=f"{current_deflection:.3f} mm")
+
+if current_deflection < 1.0:
+    st.info("💡 **안내:** 처짐량이 1mm 미만으로 매우 작습니다. 시각화 화면이 직선으로 보인다면 왼쪽 사이드바에서 **'처짐 시각적 과장 배율'**을 높여보세요.")
 
 st.markdown("---")
 
-# --- [6] 전체 형상 처짐량 비교 (차트) ---
+# --- [8] 전체 형상 비교 ---
 st.subheader("📈 전체 형상 처짐량 비교")
-st.write(f"동일한 하중({weight_kg}kg)이 가해졌을 때 각 형상별 처짐량을 비교합니다. 처짐량이 작을수록 굽힘에 강한(튼튼한) 구조입니다.")
+st.write("하중이 동일할 때 형상별 실제 처짐량 비교표입니다. (처짐이 작을수록 튼튼함)")
 
-# 모든 형상의 데이터를 계산하여 데이터프레임 생성
 results = []
 for shape in shape_list:
     I_val = calculate_inertia(shape)
@@ -116,30 +179,5 @@ for shape in shape_list:
     results.append({"단면 형상": shape, "단면2차모멘트(mm⁴)": I_val, "처짐량(mm)": def_val})
 
 df_results = pd.DataFrame(results)
-
-# 차트 출력 (처짐량 비교)
 st.bar_chart(df_results.set_index("단면 형상")["처짐량(mm)"], color="#FF4B4B")
-
-# 상세 데이터 표 출력
-st.write("상세 계산 데이터:")
 st.dataframe(df_results.style.format({"단면2차모멘트(mm⁴)": "{:,.1f}", "처짐량(mm)": "{:.3f}"}))
-
-# --- [7] 적용된 역학 공식 안내 ---
-with st.expander("📝 적용된 주요 공식 보기"):
-    st.markdown("""
-    **1. 최대 처짐량 (단순보 중심 하중)**
-    """)
-    st.latex(r"\delta = \frac{P \cdot L^3}{48 \cdot E \cdot I}")
-    st.markdown("""
-    * $\delta$: 최대 처짐량 (mm)
-    * $P$: 작용 하중 (N)
-    * $L$: 지지대 사이 거리 (360 mm)
-    * $E$: 탄성계수 (MPa)
-    * $I$: 단면2차모멘트 (mm⁴)
-    
-    **2. 직사각형 단면2차모멘트**
-    """)
-    st.latex(r"I = \frac{b \cdot h^3}{12}")
-    st.markdown("""
-    *I형, ㄷ자형, 박스형은 큰 외곽 사각형의 단면2차모멘트에서 빈 공간 사각형의 단면2차모멘트를 빼는 방식으로 계산되었습니다.*
-    """)
