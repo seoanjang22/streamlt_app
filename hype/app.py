@@ -43,12 +43,15 @@ def get_deflection_curve_3d(P, L, E, I, num_points=100, span_ext=30):
     x = np.linspace(-span_ext, L + span_ext, num_points)
     z = np.zeros_like(x)
     if P > 0:
-        theta_max = (P * L**2) / (16 * E * I) 
         for i, xi in enumerate(x):
-            if xi < 0: z[i] = theta_max * (-xi)
-            elif xi > L: z[i] = theta_max * (xi - L)
-            elif xi <= L / 2: z[i] = -(P * xi / (48 * E * I)) * (3 * L**2 - 4 * xi**2)
-            else: z[i] = -(P * (L - xi) / (48 * E * I)) * (3 * L**2 - 4 * (L - xi)**2)
+            if xi < 0: 
+                z[i] = 0.0  # 지지대 바깥쪽 들림 방지 (평평하게 유지)
+            elif xi > L: 
+                z[i] = 0.0  # 지지대 바깥쪽 들림 방지 (평평하게 유지)
+            elif xi <= L / 2: 
+                z[i] = -(P * xi / (48 * E * I)) * (3 * L**2 - 4 * xi**2)
+            else: 
+                z[i] = -(P * (L - xi) / (48 * E * I)) * (3 * L**2 - 4 * (L - xi)**2)
     return x, z
 
 # --- [2] 3D 그리기 헬퍼 함수 ---
@@ -77,6 +80,11 @@ selected_shape = st.sidebar.selectbox("단면 형상을 선택하세요:", shape
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ 하드보드지 탄성계수 (E)")
 st.sidebar.slider("탄성계수 E (MPa)", 500, 2000, step=100, key="E_val")
+
+# 🔍 화면 줌 슬라이더
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔍 화면 줌 (확대/축소)")
+zoom_level = st.sidebar.slider("카메라 거리 조절", 3.0, 20.0, 10.0, 0.5, help="값이 작을수록 화면이 확대됩니다.")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚖️ 하중 설정 (최대 5개씩)")
@@ -111,23 +119,23 @@ fig = plt.figure(figsize=(14, 7))
 ax = fig.add_subplot(111, projection='3d')
 ax.set_facecolor('#ffffff')
 
+# 카메라 줌 적용
+ax.dist = zoom_level
+
 # --- 1mm 단위 모눈종이 그리드 배경 (지지대 뒷편 y = -35 평면) ---
 grid_x_min, grid_x_max = -60, 420
 grid_z_min, grid_z_max = -140, 50
 
-# 1mm 간격 세로선 (10mm는 진하게, 1mm는 연하게)
 for gx in np.arange(grid_x_min, grid_x_max + 1, 1):
     lw = 0.5 if gx % 10 == 0 else 0.15
     alpha_val = 0.6 if gx % 10 == 0 else 0.2
     ax.plot([gx, gx], [-35, -35], [grid_z_min, grid_z_max], color='#7ab8ff', linewidth=lw, alpha=alpha_val)
 
-# 1mm 간격 가로선 (10mm는 진하게, 1mm는 연하게)
 for gz in np.arange(grid_z_min, grid_z_max + 1, 1):
     lw = 0.5 if gz % 10 == 0 else 0.15
     alpha_val = 0.6 if gz % 10 == 0 else 0.2
     ax.plot([grid_x_min, grid_x_max], [-35, -35], [gz, gz], color='#7ab8ff', linewidth=lw, alpha=alpha_val)
 
-# 모눈종이 배경 패치
 xx_grid, zz_grid = np.meshgrid(np.linspace(grid_x_min, grid_x_max, 2), np.linspace(grid_z_min, grid_z_max, 2))
 yy_grid = np.full_like(xx_grid, -35.1)
 ax.plot_surface(xx_grid, yy_grid, zz_grid, color='#f0f8ff', alpha=0.35, edgecolor='none')
@@ -169,9 +177,20 @@ for rect in shapes_3d[selected_shape]:
         Z_surf = np.array([[f_z1]*len(x_curve), [f_z2]*len(x_curve)]) + np.array([z_ex, z_ex])
         ax.plot_surface(X_surf, Y_surf, Z_surf, color='#e5d393', edgecolor='#c4b172', linewidth=0.2, alpha=1.0)
 
-# 실과 매달린 추
+# 실과 매달린 추 (보의 형상별 올바른 부착 위치 지정)
 center_x = L_support / 2
-center_z = min(z_ex) - (16 if selected_shape in ["I형", "ㄷ자형", "박스형"] else 2)
+center_z_idx = len(x_curve) // 2
+z_center_val = z_ex[center_z_idx]
+
+if selected_shape == "평판형":
+    center_z = z_center_val - 2
+elif selected_shape == "I형":
+    center_z = z_center_val - 16
+elif selected_shape == "ㄷ자형":
+    center_z = z_center_val + 16  # ∩ 모양 단면의 윗면(웹)에 정확히 밀착
+elif selected_shape == "박스형":
+    center_z = z_center_val - 13.5
+
 string_bottom_z = -50
 
 if P_newton > 0:
