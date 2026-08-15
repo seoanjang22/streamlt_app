@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 # --- [0] 세션 상태 초기화 ---
 if 'w100' not in st.session_state: st.session_state.w100 = 0
 if 'w500' not in st.session_state: st.session_state.w500 = 0
-if 'view_angle' not in st.session_state: st.session_state.view_angle = -90 
+if 'view_angle' not in st.session_state: st.session_state.view_angle = -90 # 정면 기본값
 if 'E_val' not in st.session_state: st.session_state.E_val = 1200 # 기본값
 
 def add_w100():
@@ -18,8 +18,14 @@ def add_w500():
 def sub_w500():
     if st.session_state.w500 > 0: st.session_state.w500 -= 1
 
-def set_angle(angle):
-    st.session_state.view_angle = angle
+def rotate_view(delta):
+    new_angle = st.session_state.view_angle + delta
+    # 정면(-90°) 기준 좌우 90도 범위 (-180° ~ 0°) 제한
+    if -180 <= new_angle <= 0:
+        st.session_state.view_angle = new_angle
+
+def reset_angle():
+    st.session_state.view_angle = -90
 
 # --- [1] 기본 상수 및 역학 함수 ---
 L_support = 360  
@@ -98,13 +104,27 @@ current_deflection = calculate_deflection(P_newton, L_support, st.session_state.
 st.subheader("👀 입체 거리뷰 시각화")
 
 c1, c2, c3 = st.columns(3)
-c1.button("⬅️ 왼쪽 30° 측면 보기", on_click=set_angle, args=(-120,), use_container_width=True)
-c2.button("⬇️ 정면 (0°) 보기", on_click=set_angle, args=(-90,), use_container_width=True)
-c3.button("➡️ 오른쪽 30° 측면 보기", on_click=set_angle, args=(-60,), use_container_width=True)
+c1.button("🔄 왼쪽으로 30° 회전", on_click=rotate_view, args=(-30,), use_container_width=True)
+c2.button("⬇️ 정면 보기", on_click=reset_angle, use_container_width=True)
+c3.button("🔄 오른쪽으로 30° 회전", on_click=rotate_view, args=(30,), use_container_width=True)
 
 fig = plt.figure(figsize=(14, 7))
 ax = fig.add_subplot(111, projection='3d')
 ax.set_facecolor('#ffffff')
+
+# --- 모눈종이 그리드 배경 (지지대 뒷편 y = -35 평면) ---
+grid_x_min, grid_x_max = -60, 420
+grid_z_min, grid_z_max = -140, 50
+# 세로 모눈선 (20mm 간격)
+for gx in np.arange(grid_x_min, grid_x_max + 1, 20):
+    ax.plot([gx, gx], [-35, -35], [grid_z_min, grid_z_max], color='#b0c4de', linewidth=0.5, alpha=0.6)
+# 가로 모눈선 (20mm 간격)
+for gz in np.arange(grid_z_min, grid_z_max + 1, 20):
+    ax.plot([grid_x_min, grid_x_max], [-35, -35], [gz, gz], color='#b0c4de', linewidth=0.5, alpha=0.6)
+# 모눈종이 배경 패치
+xx_grid, zz_grid = np.meshgrid(np.linspace(grid_x_min, grid_x_max, 2), np.linspace(grid_z_min, grid_z_max, 2))
+yy_grid = np.full_like(xx_grid, -35.1)
+ax.plot_surface(xx_grid, yy_grid, zz_grid, color='#f0f8ff', alpha=0.25, edgecolor='none')
 
 # 지지대(책상)
 ax.bar3d(-100, -30, -200, 100, 60, 195, color='#34495e', shade=True)
@@ -119,11 +139,11 @@ for i in range(5 - st.session_state.w500):
 for i in range(5 - st.session_state.w100):
     draw_cylinder(ax, -290 + (i*35), -15, -25, 8, 12, '#a0a0a0')
 
-# 보 단면 3D 렌더링 (ㄷ자형을 오른쪽으로 90도 회전한 교집합/아치 형태 ∩ 구조)
+# 보 단면 3D 렌더링 (오른쪽으로 90도 회전된 ㄷ자형 = 교집합/아치 형태 ∩ 구조)
 shapes_3d = {
     "평판형": [ (-25, 25, -2, 2) ],
     "I형": [ (-18, 18, 14, 16), (-1, 1, -14, 14), (-18, 18, -16, -14) ],
-    "ㄷ자형": [ (-18, 18, 14, 16), (-18, -16, -16, 14), (16, 18, -16, 14) ], # 교집합(∩) 모양 ㄷ자형
+    "ㄷ자형": [ (-18, 18, 14, 16), (-18, -16, -16, 14), (16, 18, -16, 14) ], 
     "박스형": [ (-13.5, 13.5, 11.5, 13.5), (-13.5, -11.5, -11.5, 11.5), 
                (11.5, 13.5, -11.5, 11.5), (-13.5, 13.5, -13.5, -11.5) ]
 }
