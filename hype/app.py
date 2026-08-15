@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 if 'w100' not in st.session_state: st.session_state.w100 = 0
 if 'w500' not in st.session_state: st.session_state.w500 = 0
 if 'view_angle' not in st.session_state: st.session_state.view_angle = -90 
-if 'E_val' not in st.session_state: st.session_state.E_val = 1250 # 탄성계수 기본값
+if 'E_val' not in st.session_state: st.session_state.E_val = 1200 # 기본값
 
 def add_w100():
     if st.session_state.w100 < 5: st.session_state.w100 += 1
@@ -21,13 +21,6 @@ def sub_w500():
 def set_angle(angle):
     st.session_state.view_angle = angle
 
-# 슬라이더와 입력창 동기화 함수
-def sync_slider():
-    st.session_state.E_val = st.session_state.e_slider_widget
-
-def sync_input():
-    st.session_state.E_val = st.session_state.e_input_widget
-
 # --- [1] 기본 상수 및 역학 함수 ---
 L_support = 360  
 AREA = 200       
@@ -35,7 +28,7 @@ AREA = 200
 def calculate_inertia(shape):
     if shape == "평판형": return (50.0 * (4.0 ** 3)) / 12
     elif shape == "I형": return ((36.0 * (32.0 ** 3)) / 12) - ((34.0 * (28.0 ** 3)) / 12)
-    elif shape == "ㄷ자형": return ((36.0 * (32.0 ** 3)) / 12) - ((34.0 * (28.0 ** 3)) / 12)
+    elif shape == "ㄷ자형": return ((36.0 * (32.0 ** 3)) / 12) - ((34.0 * (28.0 ** 3)) / 12) 
     elif shape == "박스형": return ((27.0 * (27.0 ** 3)) / 12) - ((23.0 * (23.0 ** 3)) / 12)
 
 def calculate_deflection(P, L, E, I):
@@ -75,13 +68,10 @@ st.sidebar.header("실험 조건 설정")
 shape_list = ["평판형", "I형", "ㄷ자형", "박스형"]
 selected_shape = st.sidebar.selectbox("단면 형상을 선택하세요:", shape_list)
 
-# 탄성계수 동기화 입력 (콜백 연동)
+# 탄성계수 슬라이더 (500~2000, 100 단위, 입력창 없음)
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ 하드보드지 탄성계수 (E)")
-st.sidebar.slider("탄성계수 E (MPa) [슬라이드 조작]", 500, 2000, value=st.session_state.E_val, step=1, 
-                  key="e_slider_widget", on_change=sync_slider)
-st.sidebar.number_input("탄성계수 E (MPa) [직접 입력]", 500, 2000, value=st.session_state.E_val, step=1, 
-                        key="e_input_widget", on_change=sync_input)
+st.sidebar.slider("탄성계수 E (MPa)", 500, 2000, step=100, key="E_val")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚖️ 하중 설정 (최대 5개씩)")
@@ -129,11 +119,11 @@ for i in range(5 - st.session_state.w500):
 for i in range(5 - st.session_state.w100):
     draw_cylinder(ax, -290 + (i*35), -15, -25, 8, 12, '#a0a0a0')
 
-# 보 단면 3D 렌더링
+# 보 단면 3D 렌더링 (ㄷ자형을 오른쪽으로 90도 회전한 교집합/아치 형태 ∩ 구조)
 shapes_3d = {
     "평판형": [ (-25, 25, -2, 2) ],
     "I형": [ (-18, 18, 14, 16), (-1, 1, -14, 14), (-18, 18, -16, -14) ],
-    "ㄷ자형": [ (-18, 16, 14, 16), (16, 18, -16, 16), (-18, 16, -16, -14) ],
+    "ㄷ자형": [ (-18, 18, 14, 16), (-18, -16, -16, 14), (16, 18, -16, 14) ], # 교집합(∩) 모양 ㄷ자형
     "박스형": [ (-13.5, 13.5, 11.5, 13.5), (-13.5, -11.5, -11.5, 11.5), 
                (11.5, 13.5, -11.5, 11.5), (-13.5, 13.5, -13.5, -11.5) ]
 }
@@ -155,7 +145,7 @@ for rect in shapes_3d[selected_shape]:
 
 # 실과 매달린 추
 center_x = L_support / 2
-center_z = min(z_ex) - (16 if selected_shape in ["I형", "ㄷ자형"] else (13.5 if selected_shape == "박스형" else 2))
+center_z = min(z_ex) - (16 if selected_shape in ["I형", "ㄷ자형", "박스형"] else 2)
 string_bottom_z = -50
 
 if P_newton > 0:
