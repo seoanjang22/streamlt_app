@@ -20,7 +20,6 @@ def sub_w500():
 
 def rotate_view(delta):
     new_angle = st.session_state.view_angle + delta
-    # 정면(-90°) 기준 좌우 90도 범위 (-180° ~ 0°) 제한
     if -180 <= new_angle <= 0:
         st.session_state.view_angle = new_angle
 
@@ -112,19 +111,26 @@ fig = plt.figure(figsize=(14, 7))
 ax = fig.add_subplot(111, projection='3d')
 ax.set_facecolor('#ffffff')
 
-# --- 모눈종이 그리드 배경 (지지대 뒷편 y = -35 평면) ---
+# --- 1mm 단위 모눈종이 그리드 배경 (지지대 뒷편 y = -35 평면) ---
 grid_x_min, grid_x_max = -60, 420
 grid_z_min, grid_z_max = -140, 50
-# 세로 모눈선 (20mm 간격)
-for gx in np.arange(grid_x_min, grid_x_max + 1, 20):
-    ax.plot([gx, gx], [-35, -35], [grid_z_min, grid_z_max], color='#b0c4de', linewidth=0.5, alpha=0.6)
-# 가로 모눈선 (20mm 간격)
-for gz in np.arange(grid_z_min, grid_z_max + 1, 20):
-    ax.plot([grid_x_min, grid_x_max], [-35, -35], [gz, gz], color='#b0c4de', linewidth=0.5, alpha=0.6)
+
+# 1mm 간격 세로선 (10mm는 진하게, 1mm는 연하게)
+for gx in np.arange(grid_x_min, grid_x_max + 1, 1):
+    lw = 0.5 if gx % 10 == 0 else 0.15
+    alpha_val = 0.6 if gx % 10 == 0 else 0.2
+    ax.plot([gx, gx], [-35, -35], [grid_z_min, grid_z_max], color='#7ab8ff', linewidth=lw, alpha=alpha_val)
+
+# 1mm 간격 가로선 (10mm는 진하게, 1mm는 연하게)
+for gz in np.arange(grid_z_min, grid_z_max + 1, 1):
+    lw = 0.5 if gz % 10 == 0 else 0.15
+    alpha_val = 0.6 if gz % 10 == 0 else 0.2
+    ax.plot([grid_x_min, grid_x_max], [-35, -35], [gz, gz], color='#7ab8ff', linewidth=lw, alpha=alpha_val)
+
 # 모눈종이 배경 패치
 xx_grid, zz_grid = np.meshgrid(np.linspace(grid_x_min, grid_x_max, 2), np.linspace(grid_z_min, grid_z_max, 2))
 yy_grid = np.full_like(xx_grid, -35.1)
-ax.plot_surface(xx_grid, yy_grid, zz_grid, color='#f0f8ff', alpha=0.25, edgecolor='none')
+ax.plot_surface(xx_grid, yy_grid, zz_grid, color='#f0f8ff', alpha=0.35, edgecolor='none')
 
 # 지지대(책상)
 ax.bar3d(-100, -30, -200, 100, 60, 195, color='#34495e', shade=True)
@@ -139,7 +145,7 @@ for i in range(5 - st.session_state.w500):
 for i in range(5 - st.session_state.w100):
     draw_cylinder(ax, -290 + (i*35), -15, -25, 8, 12, '#a0a0a0')
 
-# 보 단면 3D 렌더링 (오른쪽으로 90도 회전된 ㄷ자형 = 교집합/아치 형태 ∩ 구조)
+# 보 단면 3D 렌더링 (교집합/아치 형태 ∩ 구조의 ㄷ자형)
 shapes_3d = {
     "평판형": [ (-25, 25, -2, 2) ],
     "I형": [ (-18, 18, 14, 16), (-1, 1, -14, 14), (-18, 18, -16, -14) ],
