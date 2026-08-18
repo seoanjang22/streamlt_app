@@ -2,6 +2,21 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+import matplotlib as mpl
+
+# 한글 폰트 설정
+font_path = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
+
+try:
+    fm.fontManager.addfont(font_path)
+    korean_font = fm.FontProperties(fname=font_path).get_name()
+    mpl.rcParams["font.family"] = korean_font
+except Exception:
+    pass
+
+# 마이너스 기호 깨짐 방지
+mpl.rcParams["axes.unicode_minus"] = False
 
 # =========================================================
 # 0. 페이지 설정
