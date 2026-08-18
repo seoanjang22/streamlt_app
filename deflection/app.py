@@ -5,9 +5,32 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import matplotlib as mpl
 
-# 한글 폰트 설정
-font_path = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
+import matplotlib.font_manager as fm
+import matplotlib as mpl
 
+# =========================================================
+# 한글 폰트 자동 탐색
+# =========================================================
+font_candidates = [
+    "NanumGothic",
+    "NanumGothicCoding",
+    "Noto Sans CJK KR",
+    "Noto Sans KR"
+]
+
+korean_font = None
+
+for font in fm.fontManager.ttflist:
+    if any(
+        candidate.lower() in font.name.lower()
+        for candidate in font_candidates
+    ):
+        korean_font = font
+        break
+
+if korean_font is not None:
+    mpl.rcParams["font.family"] = korean_font.name
+    mpl.rcParams["axes.unicode_minus"] = False
 try:
     fm.fontManager.addfont(font_path)
     korean_font = fm.FontProperties(fname=font_path).get_name()
@@ -1202,7 +1225,6 @@ for shape in shape_list:
 
 df_results = pd.DataFrame(results)
 
-
 chart_col1, chart_col2 = st.columns([1.5, 1])
 
 with chart_col1:
@@ -1212,26 +1234,53 @@ with chart_col1:
         facecolor="white"
     )
 
-    ax2.bar(
-        df_results["단면 형상"],
+    x_pos = np.arange(len(df_results))
+
+    bars = ax2.bar(
+        x_pos,
         df_results["처짐량 (mm)"],
         width=0.55
     )
 
-    ax2.set_ylabel(
-        "처짐량 (mm)",
-        fontsize=10
-    )
+    # 한글 폰트 직접 적용
+    if korean_font is not None:
 
-    ax2.set_xlabel("")
+        ax2.set_xticks(x_pos)
+        ax2.set_xticklabels(
+            df_results["단면 형상"],
+            fontproperties=korean_font
+        )
 
-    ax2.set_title(
-        "형상별 실제 최대 처짐량",
-        fontsize=13,
-        fontweight="bold",
-        loc="left",
-        pad=12
-    )
+        ax2.set_title(
+            "단면 형상별 처짐 비교",
+            fontproperties=korean_font,
+            fontsize=14,
+            fontweight="bold",
+            loc="left",
+            pad=12
+        )
+
+        ax2.set_ylabel(
+            "처짐량 (mm)",
+            fontproperties=korean_font
+        )
+
+    else:
+
+        ax2.set_xticks(x_pos)
+        ax2.set_xticklabels(
+            df_results["단면 형상"]
+        )
+
+        ax2.set_title(
+            "단면 형상별 처짐 비교",
+            fontsize=14,
+            fontweight="bold",
+            loc="left",
+            pad=12
+        )
+
+        ax2.set_ylabel("처짐량 (mm)")
 
     ax2.grid(
         axis="y",
@@ -1239,17 +1288,18 @@ with chart_col1:
         alpha=0.25
     )
 
-    ax2.spines[
-        ["top", "right"]
-    ].set_visible(False)
+    ax2.spines["top"].set_visible(False)
+    ax2.spines["right"].set_visible(False)
 
-    for i, value in enumerate(
+    # 값 표시
+    for bar, value in zip(
+        bars,
         df_results["처짐량 (mm)"]
     ):
 
         ax2.text(
-            i,
-            value,
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height(),
             f"{value:.3f}",
             ha="center",
             va="bottom",
@@ -1295,7 +1345,6 @@ with chart_col2:
         "</div>",
         unsafe_allow_html=True
     )
-
 
 # =========================================================
 # 30. 데이터 테이블
