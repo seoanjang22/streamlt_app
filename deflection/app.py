@@ -3,9 +3,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# =========================================================
-# 0. 페이지 설정
-# =========================================================
 st.set_page_config(
     page_title="보의 처짐 시뮬레이션",
     page_icon="🏗️",
@@ -13,9 +10,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# =========================================================
-# 1. CSS - 깔끔한 카드형 UI
-# =========================================================
 st.markdown("""
 <style>
     .stApp {
